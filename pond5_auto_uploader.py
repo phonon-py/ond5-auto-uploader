@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 class Pond5Uploader:
     """Pond5自動アップローダークラス"""
     
-    POND5_LOGIN_URL = "https://www.pond5.com/login"
-    POND5_UPLOAD_URL = "https://www.pond5.com/uploads"
+    POND5_BASE_URL = "https://www.pond5.com"
+    POND5_MY_UPLOADS_URL = "https://www.pond5.com/ja/index.php?page=my_uploads"
     POND5_CSV_URL = "https://www.pond5.com/uploads/apply-csv"
     
     def __init__(self, config_path: str = "config.json"):
@@ -117,38 +117,53 @@ class Pond5Uploader:
     def login(self) -> bool:
         """Pond5にログイン"""
         logger.info("Pond5にログイン中...")
-        
+
         try:
-            self.driver.get(self.POND5_LOGIN_URL)
+            self.driver.get(self.POND5_BASE_URL)
             time.sleep(3)
-            
-            # メールアドレス入力
+
+            # ログインボタンをクリックしてモーダルを開く
+            logger.info("  ログインモーダルを開いています...")
+            login_link = WebDriverWait(self.driver, self.config["timeout"]).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.js-loginLink, [data-qa='nav_login']"))
+            )
+            login_link.click()
+            time.sleep(2)
+
+            # メールアドレス入力（モーダル内）
+            logger.info("  認証情報を入力中...")
             email_field = WebDriverWait(self.driver, self.config["timeout"]).until(
-                EC.presence_of_element_located((By.ID, "email"))
+                EC.presence_of_element_located((By.ID, "inputLoginModalLogin"))
             )
             email_field.clear()
             email_field.send_keys(self.config["email"])
-            
+
             # パスワード入力
-            password_field = self.driver.find_element(By.ID, "password")
+            password_field = self.driver.find_element(By.ID, "inputLoginModalPassword")
             password_field.clear()
             password_field.send_keys(self.config["password"])
-            
+
             # ログインボタンクリック
-            login_button = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            logger.info("  ログインボタンをクリック...")
+            login_button = self.driver.find_element(By.CSS_SELECTOR, "button.js-loginBtnAction, button.js-recaptchaLoginBtn")
             login_button.click()
-            
-            # ログイン成功を確認（アップロードページに遷移できるか）
+
+            # ログイン成功を確認（ページ遷移を待機）
             time.sleep(5)
-            self.driver.get(self.POND5_UPLOAD_URL)
-            
+
+            # マイアップロードページに遷移できるか確認
+            logger.info("  マイアップロードページに遷移中...")
+            self.driver.get(self.POND5_MY_UPLOADS_URL)
+            time.sleep(3)
+
+            # アップロードボタンが表示されることを確認
             WebDriverWait(self.driver, self.config["timeout"]).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='upload-button'], .upload-button, input[type='file']"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "#p5_km_uploadbtn, .MyUploads-uploadBtn"))
             )
-            
+
             logger.info("✅ ログイン成功")
             return True
-            
+
         except TimeoutException:
             logger.error("❌ ログインタイムアウト")
             return False
@@ -159,62 +174,68 @@ class Pond5Uploader:
     def upload_files(self, file_list: list[str]) -> tuple[list[str], list[str]]:
         """
         ファイルをアップロード
-        
+
         Args:
             file_list: アップロードするファイルパスのリスト
-            
+
         Returns:
             (成功リスト, 失敗リスト)
         """
         logger.info(f"📤 {len(file_list)}ファイルのアップロードを開始")
-        
+
         uploaded = []
         failed = []
-        
+
         try:
-            self.driver.get(self.POND5_UPLOAD_URL)
+            # マイアップロードページに移動
+            self.driver.get(self.POND5_MY_UPLOADS_URL)
             time.sleep(3)
-            
-            # ファイル入力要素を探す（非表示の場合もある）
-            file_input = WebDriverWait(self.driver, self.config["timeout"]).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-            )
-            
+
             # バッチ処理
             batch_size = self.config.get("upload_batch_size", 20)
-            
+
             for i in range(0, len(file_list), batch_size):
                 batch = file_list[i:i + batch_size]
                 logger.info(f"📦 バッチ {i//batch_size + 1}: {len(batch)}ファイル")
-                
+
+                # 「新規ファイルをアップロード」ボタンをクリック
+                logger.info("  アップロードモーダルを開いています...")
+                upload_btn = WebDriverWait(self.driver, self.config["timeout"]).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "#p5_km_uploadbtn, .MyUploads-uploadBtn"))
+                )
+                upload_btn.click()
+                time.sleep(2)
+
+                # Uppyのファイル入力要素を探す（非表示のinput[type='file']）
+                file_input = WebDriverWait(self.driver, self.config["timeout"]).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
+                )
+
                 for file_path in batch:
                     if not os.path.exists(file_path):
                         logger.warning(f"⚠️ ファイルが見つかりません: {file_path}")
                         failed.append(file_path)
                         continue
-                    
+
                     try:
-                        # ファイルパスを送信
+                        # ファイルパスを送信（Seleniumはinput[type='file']に直接パスを送れる）
                         file_input.send_keys(os.path.abspath(file_path))
                         logger.info(f"  ✅ アップロード中: {os.path.basename(file_path)}")
                         uploaded.append(file_path)
-                        
-                        time.sleep(self.config.get("wait_between_uploads", 2))
-                        
+
+                        time.sleep(self.config.get("wait_between_uploads", 5))
+
                     except Exception as e:
                         logger.error(f"  ❌ アップロード失敗: {os.path.basename(file_path)} - {e}")
                         failed.append(file_path)
-                
-                # バッチ間の待機
+
+                # バッチ間の待機（アップロード完了を待つ）
                 if i + batch_size < len(file_list):
-                    logger.info("⏳ 次のバッチまで30秒待機...")
-                    time.sleep(30)
+                    logger.info("⏳ 次のバッチまで60秒待機（アップロード完了待ち）...")
+                    time.sleep(60)
                     # ページをリロード
-                    self.driver.get(self.POND5_UPLOAD_URL)
+                    self.driver.get(self.POND5_MY_UPLOADS_URL)
                     time.sleep(3)
-                    file_input = WebDriverWait(self.driver, self.config["timeout"]).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-                    )
             
         except Exception as e:
             logger.error(f"❌ アップロードプロセスエラー: {e}")
@@ -259,31 +280,124 @@ class Pond5Uploader:
             logger.error(f"❌ CSVメタデータ適用エラー: {e}")
             return False
     
-    def get_files_from_csv(self, csv_path: str, music_folder: str) -> list[str]:
+    def _build_file_index(self, music_folders: list[str]) -> dict[str, str]:
         """
-        CSVからアップロード対象ファイルリストを取得
-        
+        フォルダを走査してファイル名→パスのインデックスを構築（高速化）
+
+        NASへのアクセスは1回のみ。ファイル名のマッチングはメモリ内で行う。
+
+        Args:
+            music_folders: 探索するフォルダのリスト（優先順位順）
+
+        Returns:
+            ファイル名（小文字）→フルパスの辞書
+        """
+        file_index: dict[str, str] = {}
+        total_files = 0
+
+        # 除外ディレクトリ（高速化のためSetを使用）
+        excluded_dirs = {
+            'node_modules', '.git', '.svn', '.hg', 'dist', 'build',
+            '.next', '.cache', 'coverage', '__pycache__', '.DS_Store'
+        }
+
+        for folder_idx, folder in enumerate(music_folders, 1):
+            if not os.path.exists(folder):
+                logger.warning(f"⚠️ フォルダが存在しません: {folder}")
+                continue
+
+            logger.info(f"   📁 [{folder_idx}/{len(music_folders)}] インデックス構築中: {folder}")
+            folder_file_count = 0
+
+            try:
+                for root, dirs, files in os.walk(folder):
+                    # 除外ディレクトリをスキップ（os.walkのdirsを変更することで再帰を防ぐ）
+                    dirs[:] = [d for d in dirs if d not in excluded_dirs]
+
+                    for filename in files:
+                        # 音楽ファイルのみ対象（拡張子でフィルタ）
+                        ext = os.path.splitext(filename)[1].lower()
+                        if ext not in {'.mp3', '.wav', '.flac', '.aiff', '.aif', '.m4a', '.ogg'}:
+                            continue
+
+                        filename_lower = filename.lower()
+                        full_path = os.path.join(root, filename)
+
+                        # 優先順位：先に見つかったフォルダを優先（上書きしない）
+                        if filename_lower not in file_index:
+                            file_index[filename_lower] = full_path
+                            folder_file_count += 1
+
+            except OSError as e:
+                logger.warning(f"⚠️ フォルダ探索エラー: {folder} - {e}")
+                continue
+
+            total_files += folder_file_count
+            logger.info(f"      → {folder_file_count}ファイルを登録")
+
+        logger.info(f"   📊 インデックス完成: 合計 {total_files}ファイル")
+        return file_index
+
+    def get_files_from_csv(self, csv_path: str, music_folders: list[str]) -> tuple[list[str], list[str]]:
+        """
+        CSVからアップロード対象ファイルリストを取得（高速版）
+
+        最適化ポイント:
+        1. 先にすべてのフォルダを走査してファイルインデックスを構築（1回のNASアクセス）
+        2. CSVのファイル名とメモリ内でマッチング（高速）
+
         Args:
             csv_path: 差分CSVファイルパス
-            music_folder: 音楽ファイルが格納されているフォルダ
-            
+            music_folders: 音楽ファイルが格納されているフォルダのリスト（優先順位順）
+
         Returns:
-            ファイルパスのリスト
+            (見つかったファイルのリスト, 見つからなかったファイル名のリスト)
         """
-        files = []
-        
+        found_files = []
+        missing_files = []
+        skip_missing = self.config.get("skip_missing_files", True)
+
+        logger.info(f"📂 探索対象フォルダ（優先順）:")
+        for i, folder in enumerate(music_folders, 1):
+            logger.info(f"   {i}. {folder}")
+
+        # Step 1: ファイルインデックスを構築（NASアクセスはここだけ）
+        logger.info(f"🔧 ファイルインデックスを構築中...")
+        start_time = time.time()
+        file_index = self._build_file_index(music_folders)
+        index_time = time.time() - start_time
+        logger.info(f"   ⏱️ インデックス構築時間: {index_time:.2f}秒")
+
+        # Step 2: CSVを読み込み
         with open(csv_path, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                filename = row.get('OriginalFilename', '').strip()
-                if filename:
-                    file_path = os.path.join(music_folder, filename)
-                    if os.path.exists(file_path):
-                        files.append(file_path)
-                    else:
-                        logger.warning(f"⚠️ ファイルが見つかりません: {filename}")
-        
-        return files
+            rows = list(reader)
+
+        logger.info(f"🔍 {len(rows)}ファイルをマッチング中...")
+        start_time = time.time()
+
+        # Step 3: メモリ内でマッチング（超高速）
+        for row in rows:
+            filename = row.get('OriginalFilename', '').strip()
+            if not filename:
+                continue
+
+            filename_lower = filename.lower()
+
+            if filename_lower in file_index:
+                found_files.append(file_index[filename_lower])
+            else:
+                missing_files.append(filename)
+                if skip_missing:
+                    logger.warning(f"  ⏭️ スキップ（見つかりません）: {filename}")
+                else:
+                    logger.error(f"  ❌ 見つかりません: {filename}")
+
+        match_time = time.time() - start_time
+        logger.info(f"   ⏱️ マッチング時間: {match_time:.3f}秒")
+        logger.info(f"📊 探索結果: 発見 {len(found_files)} / 未発見 {len(missing_files)}")
+
+        return found_files, missing_files
     
     def generate_pond5_csv(self, input_csv: str, output_csv: str) -> str:
         """
@@ -342,11 +456,31 @@ class Pond5Uploader:
             
             # CSVからファイルリストを取得
             csv_file = self.config.get("csv_file", "pond5_upload_diff_316songs.csv")
-            music_folder = self.config.get("music_folder", "")
-            
-            files = self.get_files_from_csv(csv_file, music_folder)
+
+            # 複数フォルダ対応（後方互換性のため旧形式もサポート）
+            music_folders = self.config.get("music_folders", [])
+            if not music_folders:
+                # 旧形式の単一フォルダ指定をサポート
+                old_folder = self.config.get("music_folder", "")
+                if old_folder:
+                    music_folders = [old_folder]
+
+            if not music_folders:
+                logger.error("❌ music_folders が設定されていません")
+                return
+
+            files, missing = self.get_files_from_csv(csv_file, music_folders)
             logger.info(f"📂 アップロード対象: {len(files)}ファイル")
-            
+
+            if missing:
+                logger.warning(f"⚠️ 見つからなかったファイル: {len(missing)}件")
+                # 見つからなかったファイルをログに保存
+                missing_log = "missing_files.txt"
+                with open(missing_log, 'w', encoding='utf-8') as f:
+                    for name in missing:
+                        f.write(f"{name}\n")
+                logger.info(f"📝 見つからなかったファイル一覧を保存: {missing_log}")
+
             if not files:
                 logger.warning("アップロードするファイルがありません")
                 return
