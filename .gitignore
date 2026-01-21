@@ -1,0 +1,29 @@
+# 設定ファイル（パスワード含む）
+config.json
+
+# ログファイル
+*.log
+upload_result_*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CSVファイル（個人データ）
+pond5_upload_diff_*.csv
+pond5_apply_ready.csv
+
+# セットアップスクリプト（トークン含む）
+setup_github.sh

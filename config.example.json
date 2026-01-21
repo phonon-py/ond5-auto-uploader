@@ -1,0 +1,10 @@
+{
+  "email": "YOUR_POND5_EMAIL",
+  "password": "YOUR_POND5_PASSWORD",
+  "music_folder": "/path/to/your/music/files",
+  "csv_file": "pond5_upload_diff.csv",
+  "headless": false,
+  "upload_batch_size": 20,
+  "wait_between_uploads": 2,
+  "timeout": 60
+}
