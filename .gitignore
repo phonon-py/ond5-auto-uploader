@@ -23,7 +23,10 @@ Thumbs.db
 
 # CSVファイル（個人データ）
 pond5_upload_diff_*.csv
-pond5_apply_ready.csv
+pond5_apply_ready*.csv
+pond5_cleaned*.csv
 
-# セットアップスクリプト（トークン含む）
-setup_github.sh
+# ログ・結果ファイル
+*.log
+ftp_upload_result_*.json
+missing_files.txt

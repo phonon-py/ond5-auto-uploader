@@ -283,7 +283,7 @@ class Pond5FTPUploader:
 
         return found_files, missing_files
 
-    def run(self):
+    def run(self, skip_confirm: bool = False):
         """メイン実行"""
         logger.info("=" * 60)
         logger.info("🎵 Pond5 FTPアップローダー 開始")
@@ -324,11 +324,14 @@ class Pond5FTPUploader:
             logger.info(f"📊 合計サイズ: {total_size_gb:.2f}GB")
 
             # ユーザー確認
-            print(f"\n{len(files)}ファイル ({total_size_gb:.2f}GB) をFTPでアップロードします。")
-            print("続行しますか？ (y/n): ", end="")
-            if input().lower() != 'y':
-                logger.info("キャンセルされました")
-                return
+            if not skip_confirm:
+                print(f"\n{len(files)}ファイル ({total_size_gb:.2f}GB) をFTPでアップロードします。")
+                print("続行しますか？ (y/n): ", end="")
+                if input().lower() != 'y':
+                    logger.info("キャンセルされました")
+                    return
+            else:
+                logger.info(f"📤 {len(files)}ファイル ({total_size_gb:.2f}GB) をアップロードします")
 
             # FTP接続
             if not self.connect():
@@ -383,6 +386,7 @@ def main():
     parser = argparse.ArgumentParser(description="Pond5 FTPアップローダー")
     parser.add_argument("--config", default="config.json", help="設定ファイルパス")
     parser.add_argument("--test", action="store_true", help="接続テストのみ")
+    parser.add_argument("-y", "--yes", action="store_true", help="確認をスキップ")
 
     args = parser.parse_args()
 
@@ -406,7 +410,7 @@ def main():
             logger.error("❌ FTP接続テスト失敗")
     else:
         uploader = Pond5FTPUploader(args.config)
-        uploader.run()
+        uploader.run(skip_confirm=args.yes)
 
 
 if __name__ == "__main__":
